@@ -1,0 +1,114 @@
+---
+title: "HuYuDataInsight LLC"
+author: "Zhaowei Cai"
+date: "2024-05-08"
+output: pdf_document
+---
+
+1. 
+```{r}
+library(quantmod)
+library(urca)
+library(forecast)
+library(tseries)
+library(fGarch)
+
+##load the data
+getSymbols('SBUX')
+chartSeries(SBUX,subset='2009::2013')
+```
+
+2.
+```{r}
+##Calculate the log-return
+r = na.omit(diff(log(SBUX$SBUX.Close)))
+r = r["2009::2013"]
+n=length(r)
+plot(r, main="Time plot of the daily logged return of SBUX")
+
+##Check for the trend (the Augmented Dickey–Fuller (ADF) test)
+
+summary(ur.df(r, type='trend', lags=20, selectlags="BIC"))
+# From the result, we can see that the intercept, which is \alpha, is significantly different from 0. It means that the mean of the time series is not 0, in other words, there is a drift. Also, there is no linear trend for this time series because the coefficient for tt is not significant. 
+
+##Check for the seasonality
+
+acf(r,main="ACF of the logged return",yaxt="n")
+ci=qnorm(c(0.025, 0.975))/sqrt(n)
+text(y=ci,par("usr")[1],labels=round(ci,4),pos=2,xpd=TRUE)
+pacf(r,main="PACF of the logged return",yaxt="n")
+text(y=ci,par("usr")[1],labels=round(ci,4),pos=2,xpd=TRUE)
+spec.pgram(r,main="Series: the logged return")
+# we cannot find any evidence for seasonality. 
+
+##1.Demean
+r1=r-mean(r)
+
+acf(r1,lag=10,main="ACF of the demeaned logged return",yaxt="n")
+text(y=ci,par("usr")[1],labels=round(ci,4),pos=2,xpd=TRUE)
+pacf(r1,lag=10,main="PACF of the demeaned logged return",yaxt="n")
+text(y=ci,par("usr")[1],labels=round(ci,4),pos=2,xpd=TRUE)
+# AR(1)
+
+fit = arima(r,order=c(1,0,0))
+summary(fit)
+tsdiag(fit)
+
+##2.Difference
+diffr = na.omit(diff(r))
+
+acf(diffr,main="ACF of the differenced logged return",yaxt="n")
+text(y=ci,par("usr")[1],labels=round(ci,4),pos=2,xpd=TRUE)
+pacf(diffr,main="PACF of the differenced logged return",yaxt="n")
+text(y=ci,par("usr")[1],labels=round(ci,4),pos=2,xpd=TRUE)
+# MA(1)
+
+##Fit the ARIMA model
+fit1 = arima(r, order=c(0,1,1))
+summary(fit1)
+tsdiag(fit1)
+# The residual seems to be not independent from each other. 
+
+fit2 = arima(r, order=c(1,1,1))
+summary(fit2)
+tsdiag(fit2)
+# Here ARIMA(1,1,1) seems better than ARIMA(0,1,1)
+```
+
+3.
+Model	          Log-likelihood	AIC
+AR(1)+intercept	3098	          -6189.99
+ARIMA(1,1,1)	  3091.4	        -6176.79
+
+we can see that the AR(1) model with intercept is much better than that of ARIMA(1,1,1). 
+
+```{r}
+##Check by auto.arima
+auto.arima(r)
+
+##Diagnostic
+res=residuals(fit)
+shapiro.test(res)
+
+par(mfrow=c(2,1))
+hist(res)
+lines(density(res))
+qqnorm(res)          
+qqline(res)
+```
+
+4.
+I found that the best model for the logged return of SBUX data is an AR(1) model with a drift:
+Xt = 0.0017 - 0.0724Xt-1 + et
+
+5.
+```{r}
+# AR(1)-GARCH(1,1)
+summary(garchFit(~arma(1,0)+garch(1,1), r, race=F))
+
+# ARIMA(1,1,1)-GARCH(1,1)
+diffr = na.omit(diff(r))
+summary(garchFit(~arma(1,1)+garch(1,1), diffr, race=F))
+```
+
+Comparing the log-likelihood of the former models, we can see the model with GARCH(1,1) is much better. Furthermore, the AR(1)+GARCH(1,1) model is found to be the best.
